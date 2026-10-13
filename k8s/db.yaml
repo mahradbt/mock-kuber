@@ -1,0 +1,54 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: seed
+data:
+  seed.sql: |
+    CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, description TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+    INSERT INTO items (name, description) VALUES
+      ('Apple', 'A red fruit'),
+      ('Banana', 'A yellow fruit'),
+      ('Cherry', 'A small red fruit');
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: db}
+  template:
+    metadata:
+      labels: {app: db}
+    spec:
+      initContainers:
+        - name: seed
+          image: datasetteproject/datasette:latest
+          command: ["python", "-c", "import sqlite3; c = sqlite3.connect('/data/app.db'); c.executescript(open('/seed/seed.sql').read()); c.commit()"]
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: seed, mountPath: /seed}
+      containers:
+        - name: datasette
+          image: datasetteproject/datasette:latest
+          command: ["datasette", "/data/app.db", "-h", "0.0.0.0", "-p", "8001"]
+          ports:
+            - containerPort: 8001
+          volumeMounts:
+            - {name: data, mountPath: /data}
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: seed
+          configMap:
+            name: seed
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db
+spec:
+  selector: {app: db}
+  ports:
+    - port: 8001
